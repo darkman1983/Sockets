@@ -101,7 +101,8 @@ class Server
     }
 
     /**
-     * Run the Server, forever
+     * Run the Server for as long as loopOnce returns true
+     * @see self.loopOnce
      * @return void
      * @throws \Navarr\Socket\Exception\SocketException
      */
@@ -117,7 +118,7 @@ class Server
 
     /**
      * This is the main server loop.  This code is responsible for adding connections and triggering hooks
-     * @return bool Whether or not to shutdown the erver
+     * @return bool Whether or not to shutdown the server
      * @throws \Navarr\Socket\Exception\SocketException
      */
     protected function loopOnce()
@@ -128,22 +129,25 @@ class Server
         // Set up a block call to socket_select
         $write = null;
         $except = null;
-        Socket::select($read, $write, $except, 0);
+        Socket::select($read, $write, $except, null);
 
         // If there is a new connection, add it
         if (in_array($this->masterSocket, $read)) {
             unset($read[array_search($this->masterSocket, $read)]);
             $socket = $this->masterSocket->accept();
             $this->clients[] = $socket;
+
             if ($this->triggerHooks(self::HOOK_CONNECT, $socket) === false) {
                 // This only happens when a hook tells the server to shut itself down.
                 return false;
             }
+            unset($socket);
         }
 
         // Check for input from each client
         foreach ($read as $client) {
             $input = $this->read($client);
+
             if ($input === '') {
                 if ($this->disconnect($client) === false) {
                     // This only happens when a hook tells the server to shut itself down.
@@ -155,7 +159,13 @@ class Server
                     return false;
                 }
             }
+            unset($input);
         }
+
+        // Unset the variables we were holding on to
+        unset($read);
+        unset($write);
+        unset($except);
 
         // Tells self::run to Continue the Loop
         return true;
@@ -164,7 +174,7 @@ class Server
     /**
      * Overrideable Read Functionality
      * @param Socket $client
-     * @return bool|string
+     * @return string
      */
     protected function read(Socket $client)
     {
@@ -180,12 +190,22 @@ class Server
     public function disconnect(Socket $client, $message = '')
     {
         $clientIndex = array_search($client, $this->clients);
-        $return = $this->triggerHooks(self::HOOK_DISCONNECT, $this->clients[$clientIndex], $message);
+        $return = $this->triggerHooks(
+            self::HOOK_DISCONNECT,
+            $this->clients[$clientIndex],
+            $message
+        );
+
         $this->clients[$clientIndex]->close();
         unset($this->clients[$clientIndex]);
+        unset($client);
+
         if ($return === self::RETURN_HALT_SERVER) {
             return false;
         }
+
+        unset($return);
+
         return true;
     }
 
@@ -201,12 +221,14 @@ class Server
         if (isset($this->hooks[$command])) {
             foreach ($this->hooks[$command] as $callable) {
                 $continue = call_user_func($callable, $this, $client, $input);
+
                 if ($continue === self::RETURN_HALT_HOOK) {
                     break;
                 }
                 if ($continue === self::RETURN_HALT_SERVER) {
                     return false;
                 }
+                unset($continue);
             }
         }
         return true;
@@ -215,7 +237,8 @@ class Server
     /**
      * Attach a Listener to a Hook
      * @param string $command Hook to listen for
-     * @param callable $callable A callable with the signature (Server, Socket, string)
+     * @param callable $callable A callable with the signature (Server, Socket, string).
+     *        Callable should return false if it wishes to stop the server, and true if it wishes to continue.
      * @return void
      */
     public function addHook($command, $callable)
@@ -227,7 +250,9 @@ class Server
             if ($k !== false) {
                 return;
             }
+            unset($k);
         }
+
         $this->hooks[$command][] = $callable;
     }
 
@@ -239,8 +264,13 @@ class Server
      */
     public function removeHook($command, $callable)
     {
-        if (isset($this->hooks[$command]) && array_search($callable, $this->hooks[$command]) !== false) {
-            unset($this->hooks[$command][array_search($callable, $this->hooks[$command])]);
+        if (isset($this->hooks[$command]) &&
+            array_search($callable, $this->hooks[$command]) !== false
+        ) {
+
+            $hook = array_search($callable, $this->hooks[$command]);
+            unset($this->hooks[$command][$hook]);
+            unset($hook);
         }
     }
 

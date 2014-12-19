@@ -5,6 +5,7 @@ use Navarr\Socket\Server;
 
 class WebServer extends Server
 {
+    /** @var WebClient[] */
     protected $clientMap;
     protected $readType = PHP_BINARY_READ;
 
@@ -56,9 +57,12 @@ class WebClient
         $this->socket = $client;
     }
 
+    /**
+     * @param string $message
+     */
     public function dispatch($message)
     {
-        echo trim($message),"\n";
+        echo trim($message), "\n";
         $message = trim($message);
         if ($this->firstLine === null) {
             $tokens = explode(" ", $message, 3);
@@ -79,7 +83,10 @@ class WebClient
             $this->writeLine('Content-Type: text/plain');
             $this->writeLine();
 
-            $this->writeLine("You requested {$this->headers['Host']}{$this->resource} using verb {$this->verb} over {$this->protocol}");
+            $url = $this->headers['Host'].$this->resource;
+            $this->writeLine(
+                "You requested {$url} using verb {$this->verb} over {$this->protocol}"
+            );
 
             $this->disconnect();
         }
